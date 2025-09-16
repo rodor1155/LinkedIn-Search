@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinkedIn Search RMIS Contact Automation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <div class="header-content">
+                <h1>
+                    <i class="fab fa-linkedin"></i>
+                    LinkedIn RMIS Contact Search
+                </h1>
+                <p class="subtitle">Automated LinkedIn Profile Discovery for Risk Management & Insurance Professionals</p>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="form-container">
+                <form id="linkedinSearchForm" class="search-form">
+                    <div class="form-section">
+                        <h2><i class="fas fa-building"></i> Target Companies</h2>
+                        <div class="form-group">
+                            <label for="companies">Company List</label>
+                            <textarea 
+                                id="companies" 
+                                name="companies" 
+                                rows="6" 
+                                placeholder="Enter company names (one per line):&#10;Microsoft&#10;Google&#10;Amazon&#10;Apple&#10;Meta"
+                                required
+                            ></textarea>
+                            <small class="help-text">Enter each company name on a new line</small>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h2><i class="fas fa-search"></i> Search Keywords</h2>
+                        <div class="form-group">
+                            <label for="keywords">Job Titles & Keywords</label>
+                            <textarea 
+                                id="keywords" 
+                                name="keywords" 
+                                rows="4" 
+                                placeholder="Enter keywords (one per line or comma-separated):&#10;Risk Manager&#10;Insurance Manager&#10;RMIS Specialist&#10;Risk Analyst"
+                                required
+                            ></textarea>
+                            <small class="help-text">Enter job titles and keywords for LinkedIn search</small>
+                        </div>
+                    </div>
+
+                    <div class="form-section">
+                        <h2><i class="fas fa-user-tie"></i> Sales Information</h2>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="salesRep">Sales Representative</label>
+                                <input 
+                                    type="text" 
+                                    id="salesRep" 
+                                    name="salesRep" 
+                                    placeholder="Enter sales rep name"
+                                    required
+                                >
+                            </div>
+                            <div class="form-group">
+                                <label for="region">Target Region</label>
+                                <select id="region" name="region" required>
+                                    <option value="">Select Region</option>
+                                    <option value="Global">Global</option>
+                                    <option value="North America">North America</option>
+                                    <option value="Europe">Europe</option>
+                                    <option value="Asia Pacific">Asia Pacific</option>
+                                    <option value="Latin America">Latin America</option>
+                                    <option value="Middle East & Africa">Middle East & Africa</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="submit" id="submitBtn" class="submit-btn">
+                            <i class="fas fa-rocket"></i>
+                            Start LinkedIn Search
+                        </button>
+                        <button type="reset" class="reset-btn">
+                            <i class="fas fa-refresh"></i>
+                            Reset Form
+                        </button>
+                    </div>
+                </form>
+
+                <!-- Status Messages -->
+                <div id="statusMessage" class="status-message hidden"></div>
+                
+                <!-- Results Summary -->
+                <div id="resultsSection" class="results-section hidden">
+                    <h3><i class="fas fa-chart-line"></i> Search Summary</h3>
+                    <div id="searchSummary" class="search-summary"></div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <div class="footer-content">
+                <p>&copy; 2024 LinkedIn RMIS Contact Search Tool. Professional networking automation for risk management.</p>
+            </div>
+        </footer>
+    </div>
+
+    <script src="js/main.js"></script>
+</body>
+</html>

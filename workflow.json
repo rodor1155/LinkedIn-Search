@@ -1,0 +1,1043 @@
+{
+  "name": "Linkedin Search RMIS Contact Web Frontend and Auto Connect",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// Handle webhook data with fallbacks and better error handling\nconsole.log('=== PROCESSING WEBHOOK DATA ===');\n\nlet webhookData = $json || {};\nconsole.log('Webhook data keys:', Object.keys(webhookData));\n\n// Default test data if no webhook data found\nlet companies = ['Microsoft'];  // Default for testing\nlet keywords = ['Risk Manager']; // Default for testing\nlet salesRepName = 'Sales Team'; // Default sales rep\n\n// Try to extract real data if available\ntry {\n  const bodyData = webhookData.body || {};\n  const queryData = webhookData.query || {};\n  \n  // Check various possible field names\n  const companyInput = bodyData.companies || queryData.companies || \n                      bodyData.companyList || queryData.companyList ||\n                      bodyData['Company List'] || queryData['Company List'] || '';\n                      \n  const keywordInput = bodyData.keywords || queryData.keywords ||\n                      bodyData.searchKeywords || queryData.searchKeywords ||\n                      bodyData['Search Keywords'] || queryData['Search Keywords'] || '';\n\n  // NEW: Extract sales rep name\n  const salesRepInput = bodyData.salesRep || queryData.salesRep ||\n                       bodyData.salesRepName || queryData.salesRepName ||\n                       bodyData['Sales Rep'] || queryData['Sales Rep'] || '';\n\n  console.log('Found company input:', companyInput);\n  console.log('Found keyword input:', keywordInput);\n  console.log('Found sales rep input:', salesRepInput);\n\n  // Parse companies if found\n  if (companyInput && companyInput.trim()) {\n    companies = companyInput.split('\\n').map(c => c.trim()).filter(c => c.length > 0);\n    console.log('Parsed companies:', companies);\n  }\n\n  // Parse keywords if found  \n  if (keywordInput && keywordInput.trim()) {\n    if (keywordInput.includes(',')) {\n      keywords = keywordInput.split(',').map(k => k.trim()).filter(k => k.length > 0);\n    } else {\n      keywords = keywordInput.split('\\n').map(k => k.trim()).filter(k => k.length > 0);\n    }\n    console.log('Parsed keywords:', keywords);\n  }\n\n  // Parse sales rep name\n  if (salesRepInput && salesRepInput.trim()) {\n    salesRepName = salesRepInput.trim();\n    console.log('Parsed sales rep:', salesRepName);\n  }\n\n} catch (error) {\n  console.log('Error parsing webhook data, using defaults:', error.message);\n}\n\nconsole.log('Final companies:', companies);\nconsole.log('Final keywords:', keywords);\nconsole.log('Final sales rep:', salesRepName);\n\n// Create combinations\nconst combinations = [];\nlet combinationIndex = 1;\n\nfor (const company of companies) {\n  for (const keyword of keywords) {\n    combinations.push({\n      company: company,\n      keywords: keyword,\n      searchQuery: `\"${company}\" \"${keyword}\" site:linkedin.com`,\n      salesRepName: salesRepName, // Add sales rep to each combination\n      combinationNumber: combinationIndex,\n      totalCombinations: companies.length * keywords.length\n    });\n    combinationIndex++;\n  }\n}\n\nconsole.log(`Created ${combinations.length} combinations`);\nreturn combinations.map(item => ({ json: item }));\n"
+      },
+      "id": "c3e943fd-9127-4452-a993-08c357b2c4cd",
+      "name": "Process Companies",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -660,
+        -840
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Debug output with random delays to avoid CAPTCHA\nconst data = $json;\nconsole.log(`Processing item ${data.combinationNumber}/${data.totalCombinations}: ${data.company}`);\nconsole.log(`Search query: ${data.searchQuery}`);\n\n// Add random delay between 5-15 seconds to avoid triggering Google's rate limits\nconst delaySeconds = Math.floor(Math.random() * 10) + 5; // 5-15 seconds\nconsole.log(`Adding ${delaySeconds} second delay to avoid CAPTCHA`);\n\n// Wait for the delay\nawait new Promise(resolve => setTimeout(resolve, delaySeconds * 1000));\n\nreturn { json: data };\n"
+      },
+      "id": "c6639f9a-8ec4-4096-a3f7-dfb5f78ecbea",
+      "name": "Debug Output",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        -440,
+        -840
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "resource": "extraction",
+        "operation": "query",
+        "sessionMode": "new",
+        "url": "=https://www.bing.com/search?q={{ encodeURI($json.searchQuery) }}&first=1\n",
+        "prompt": "Find LinkedIn profiles for {{ $json.keywords }} professionals at {{ $json.company }}. For each relevant profile found, extract the following information in this exact format:\n\nPROFILE_START\nName: [Full Name]\nTitle: [Current Job Title]\nCompany: [Current Company]\nLocation: [City, State/Country]\nLinkedIn_URL: [Full LinkedIn Profile URL]\nExperience: [Years of experience or current role duration]\nEducation: [Highest degree or most recent education]\nSummary: [Brief description of their role/background]\nPROFILE_END\n\nIf multiple profiles are found, separate each with PROFILE_START/PROFILE_END blocks.\nIf no relevant profiles are found, return: NO_PROFILES_FOUND\nOnly return profiles that match the search criteria for {{ $json.keywords }} roles.",
+        "additionalFields": {}
+      },
+      "id": "940e1058-f1b8-4962-afe5-d23ebc555e83",
+      "name": "Search LinkedIn Profiles - Fixed",
+      "type": "n8n-nodes-base.airtop",
+      "position": [
+        -220,
+        -840
+      ],
+      "notesInFlow": true,
+      "typeVersion": 1,
+      "credentials": {
+        "airtopApi": {
+          "id": "VaCaNI0f0Qf50B3i",
+          "name": "Airtop account both@"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// FIXED VERSION - More robust parsing with fallbacks\nconsole.log('=== ENHANCED PROFILE PARSING START ===');\n\nconst inputData = $json || {};\nconst company = inputData.company || 'Search Target';\nconst keywords = inputData.keywords || 'RMIS Professional';\n\nlet profileData = {};\nlet status = 'Error';\nlet errorMessage = '';\nlet rawResponse = '';\n\n// Helper function to extract fields from profile text - MORE ROBUST\nfunction extractField(text, fieldName) {\n  const cleanText = text.replace(/\\\\n/g, '\\n');\n  // Try multiple patterns to be more flexible\n  const patterns = [\n    new RegExp(`${fieldName}:\\\\s*(.+?)(?=\\\\n|$)`, 'i'),\n    new RegExp(`${fieldName}\\\\s*[-:]\\\\s*(.+?)(?=\\\\n|$)`, 'i'),\n    new RegExp(`${fieldName}\\\\s*(.+?)(?=\\\\n|$)`, 'i')\n  ];\n  \n  for (const pattern of patterns) {\n    const match = cleanText.match(pattern);\n    if (match && match[1] && match[1].trim()) {\n      return match[1].trim();\n    }\n  }\n  return null;\n}\n\ntry {\n  // Get Airtop response\n  let airtopResponse = null;\n  \n  if (inputData.data && inputData.data.modelResponse) {\n    airtopResponse = inputData.data.modelResponse;\n  } else if (inputData.modelResponse) {\n    airtopResponse = inputData.modelResponse;\n  } else if (inputData.response) {\n    airtopResponse = inputData.response;\n  } else if (inputData.result) {\n    airtopResponse = inputData.result;\n  }\n\n  if (airtopResponse) {\n    rawResponse = String(airtopResponse);\n    const cleanResponse = rawResponse.replace(/\\\\n/g, '\\n');\n    \n    console.log('Raw Airtop response:', rawResponse.substring(0, 500) + '...');\n    \n    if (cleanResponse.includes('NO_PROFILES_FOUND')) {\n      status = 'No Profiles Found';\n      profileData = {\n        name: 'N/A',\n        title: 'N/A',\n        company: company,\n        location: 'N/A',\n        linkedinUrl: 'N/A',\n        experience: 'N/A',\n        education: 'N/A',\n        summary: 'No matching profiles found'\n      };\n    } else if (cleanResponse.includes('PROFILE_START')) {\n      const profileStart = cleanResponse.indexOf('PROFILE_START');\n      const profileEnd = cleanResponse.indexOf('PROFILE_END', profileStart);\n      \n      if (profileStart !== -1 && profileEnd !== -1) {\n        const profileBlock = cleanResponse.substring(profileStart + 'PROFILE_START'.length, profileEnd).trim();\n        \n        console.log('Profile block found:', profileBlock);\n        \n        profileData = {\n          name: extractField(profileBlock, 'Name') || 'N/A',\n          title: extractField(profileBlock, 'Title') || 'N/A',\n          company: extractField(profileBlock, 'Company') || company,\n          location: extractField(profileBlock, 'Location') || 'N/A',\n          linkedinUrl: extractField(profileBlock, 'LinkedIn_URL') || extractField(profileBlock, 'LinkedIn URL') || 'N/A',\n          experience: extractField(profileBlock, 'Experience') || 'N/A',\n          education: extractField(profileBlock, 'Education') || 'N/A',\n          summary: extractField(profileBlock, 'Summary') || 'N/A'\n        };\n        \n        // If we got at least a name, consider it a success\n        if (profileData.name && profileData.name !== 'N/A') {\n          status = 'Profile Found';\n          console.log('Successfully parsed profile:', profileData.name);\n        } else {\n          status = 'Partial Data';\n          console.log('Found profile block but missing name');\n        }\n      } else {\n        status = 'Parse Failed';\n        errorMessage = 'Could not find complete profile block';\n        // Try to extract whatever we can from the raw response\n        profileData = {\n          name: 'Parse Failed',\n          title: 'N/A',\n          company: company,\n          location: 'N/A',\n          linkedinUrl: 'N/A',\n          experience: 'N/A',\n          education: 'N/A',\n          summary: 'Profile block incomplete'\n        };\n      }\n    } else {\n      // Try to extract from raw response even without proper formatting\n      status = 'Raw Extraction';\n      profileData = {\n        name: extractField(rawResponse, 'Name') || 'N/A',\n        title: extractField(rawResponse, 'Title') || 'N/A', \n        company: extractField(rawResponse, 'Company') || company,\n        location: extractField(rawResponse, 'Location') || 'N/A',\n        linkedinUrl: extractField(rawResponse, 'LinkedIn') || 'N/A',\n        experience: 'N/A',\n        education: 'N/A',\n        summary: 'Extracted from raw response'\n      };\n    }\n  }\n\n} catch (error) {\n  status = 'Parse Error';\n  errorMessage = error.message;\n  console.log('Parse error:', error);\n  profileData = {\n    name: 'Error',\n    title: 'N/A',\n    company: company,\n    location: 'N/A',\n    linkedinUrl: 'N/A',\n    experience: 'N/A',\n    education: 'N/A',\n    summary: 'Error during parsing'\n  };\n}\n\nconsole.log('Final profile data:', profileData);\nconsole.log('Final status:', status);\n\n// CRITICAL CHANGE: Don't skip any results - always return data\n// This ensures data flows through to Google Sheets even if partial\nreturn {\n  json: {\n    \"Profile Name\": profileData.name,\n    \"Job Title\": profileData.title,\n    \"Current Company\": profileData.company,\n    \"Location\": profileData.location,\n    \"LinkedIn URL\": profileData.linkedinUrl,\n    \"Experience\": profileData.experience,\n    \"Education\": profileData.education,\n    \"Summary\": profileData.summary,\n    \"Status\": status,\n    \"Search Date\": new Date().toISOString().split('T')[0],\n    \"Timestamp\": new Date().toISOString(),\n    \"Raw Response\": rawResponse.substring(0, 200) + '...', // For debugging\n    \"Error\": errorMessage\n  }\n};\n"
+      },
+      "id": "04c7f3a1-21f7-4433-9ea6-b61eb27200b7",
+      "name": "Parse Results - Enhanced",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        0,
+        -840
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1L0FlmJRBM-AjmhfSXUFwHPcfHnHyyHGl0UxPqQDvNAU",
+          "mode": "list",
+          "cachedResultName": "RMIS Contact Database",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1L0FlmJRBM-AjmhfSXUFwHPcfHnHyyHGl0UxPqQDvNAU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1606290650,
+          "mode": "list",
+          "cachedResultName": "LinkedIn Details",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1L0FlmJRBM-AjmhfSXUFwHPcfHnHyyHGl0UxPqQDvNAU/edit#gid=1606290650"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Profile Name",
+              "displayName": "Profile Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Job Title",
+              "displayName": "Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Current Company",
+              "displayName": "Current Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Location",
+              "displayName": "Location",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "LinkedIn URL",
+              "displayName": "LinkedIn URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Experience",
+              "displayName": "Experience",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Education",
+              "displayName": "Education",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Summary",
+              "displayName": "Summary",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Search Date",
+              "displayName": "Search Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "messageContext",
+              "displayName": "messageContext",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "readyForMessage",
+              "displayName": "readyForMessage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "skipMessage",
+              "displayName": "skipMessage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "debug",
+              "displayName": "debug",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "2a9e8ff1-c0b5-4bb3-ab60-3e32301ff741",
+      "name": "Save Successful Results",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        860,
+        -540
+      ],
+      "typeVersion": 4.5,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "bqjlJCFDr9rLQ9MG",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "RMISDISCOLICONNECT",
+        "responseMode": "lastNode",
+        "options": {
+          "allowedOrigins": "*",
+          "responseContentType": ""
+        }
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -1100,
+        -840
+      ],
+      "id": "2959be35-a176-4dc4-9c1e-3556916a795e",
+      "name": "Webhook",
+      "webhookId": "9e7e2403-f7da-4013-bbe3-365459d5c532"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare context - ALWAYS return data to keep workflow running\nconsole.log('=== PREPARING MESSAGE CONTEXT ===');\n\nconst profileData = $json;\nconst name = profileData['Profile Name'] || 'N/A';\nconst title = profileData['Job Title'] || 'N/A';\nconst company = profileData['Current Company'] || 'N/A';\nconst status = profileData['Status'] || 'Unknown';\n\nconsole.log('Processing:', name, title, 'at', company, 'Status:', status);\n\n// Check if we have a real profile\nconst hasRealProfile = (name !== 'N/A' && title !== 'N/A' && status.includes('Found'));\n\nif (!hasRealProfile) {\n  console.log('No real profile data - will skip message generation');\n  \n  // Return data but mark as skip\n  return {\n    json: {\n      ...profileData,\n      messageContext: null,\n      readyForMessage: false,\n      skipMessage: true,\n      debug: `SKIP: Profile data incomplete - Name: ${name}, Title: ${title}, Status: ${status}`\n    }\n  };\n}\n\n// Create message context for real profiles\nconst messageContext = {\n  recipientName: name,\n  recipientTitle: title,\n  recipientCompany: company,\n  profileSummary: `${name} is ${title} at ${company}`\n};\n\nconsole.log('SUCCESS: Generated message context for', name);\n\nreturn {\n  json: {\n    ...profileData,\n    messageContext: messageContext,\n    readyForMessage: true,\n    skipMessage: false,\n    debug: `SUCCESS: Ready for message - ${name} (${title}) at ${company}`\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        -840
+      ],
+      "id": "8f17f921-d4eb-47dd-bf5f-744f0b4fcf99",
+      "name": "Prepare Message Context"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Debug what the webhook actually receives\nconsole.log('=== WEBHOOK INPUT DEBUG ===');\nconsole.log('Full $json structure:', JSON.stringify($json, null, 2));\nconsole.log('$json keys:', Object.keys($json));\nconsole.log('$json type:', typeof $json);\n\n// Check common data locations\nconsole.log('$json.body:', $json.body);\nconsole.log('$json.query:', $json.query);\nconsole.log('$json.headers:', $json.headers);\nconsole.log('$json.params:', $json.params);\n\n// Check if data is nested deeper\nif ($json.body) {\n  console.log('Body keys:', Object.keys($json.body));\n  console.log('Body content:', JSON.stringify($json.body, null, 2));\n}\n\nif ($json.query) {\n  console.log('Query keys:', Object.keys($json.query));\n  console.log('Query content:', JSON.stringify($json.query, null, 2));\n}\n\n// Return unchanged for next node\nreturn { json: $json };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -880,
+        -840
+      ],
+      "id": "11812e48-2f3d-41f0-a015-a158c8e89bba",
+      "name": "Debug Webhook Input"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        220,
+        -1320
+      ],
+      "id": "c5d31ec1-21e9-4180-b1f4-b29e66ddbb32",
+      "name": "When chat message received",
+      "webhookId": "9e2da0db-2446-4972-bbbb-e3975e13cfc7"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Create a personalized LinkedIn connection message for this professional: {{ $json.messageContext.profileSummary }} Requirements: - Keep it under 300 characters - Based on this proven template: With 85% of risk managers facing challenges in extracting actionable insights from their data the need for an integrated AI-powered solution is clear. Archer RMIS AI addresses these challenges by unifying risk and insurance management on a single platform. Archer RMIS AI delivers real-time insights to optimize policy coverage reduce claims costs and boost overall business performance. Would you be open to a brief meeting to discuss how Archer RMIS AI can support your team's goals? - Use their first name only - Personalize for their role and industry - Sound professional - Return only the message text no quotes or formatting.\n",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a professional LinkedIn outreach expert who creates personalized, authentic connection requests for risk management and insurance professionals."
+            },
+            {
+              "type": "HumanMessagePromptTemplate",
+              "message": "=Create a personalized LinkedIn connection message for this professional:  {{ $json.messageContext.profileSummary }}  Requirements: - Keep it under 300 characters (LinkedIn connection request limit) - Be genuine and mention something specific about their role in risk management - Include a relevant business reason for connecting (risk management insights, industry trends, RMIS solutions) - Sound natural and professional, not salesy - Use their first name only - Focus on mutual value and professional networking  Return only the message text, no quotes or additional formatting."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        560,
+        -1200
+      ],
+      "id": "b309bfb0-fc94-49c2-889d-80b2ba303ce8",
+      "name": "Basic LLM Chain"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "chatgpt-4o-latest",
+          "mode": "list",
+          "cachedResultName": "chatgpt-4o-latest"
+        },
+        "options": {
+          "maxTokens": 500,
+          "temperature": 0.3
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1280,
+        -500
+      ],
+      "id": "b8f95adf-cc53-4e3f-84f2-b9e8da0ce228",
+      "name": "OpenAI Chat Model",
+      "notesInFlow": false,
+      "credentials": {
+        "openAiApi": {
+          "id": "srbtOjjF011MKXwu",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1L0FlmJRBM-AjmhfSXUFwHPcfHnHyyHGl0UxPqQDvNAU",
+          "mode": "list",
+          "cachedResultName": "RMIS Contact Database",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1L0FlmJRBM-AjmhfSXUFwHPcfHnHyyHGl0UxPqQDvNAU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1003836167,
+          "mode": "list",
+          "cachedResultName": "Outreach Queue",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1L0FlmJRBM-AjmhfSXUFwHPcfHnHyyHGl0UxPqQDvNAU/edit#gid=1003836167"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Profile Name"
+          ],
+          "schema": [
+            {
+              "id": "Profile Name",
+              "displayName": "Profile Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Job Title",
+              "displayName": "Job Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Current Company",
+              "displayName": "Current Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "LinkedIn URL",
+              "displayName": "LinkedIn URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Generated Message",
+              "displayName": "Generated Message",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date Added",
+              "displayName": "Date Added",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Ready to Send (checkbox)",
+              "displayName": "Ready to Send (checkbox)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "text",
+              "displayName": "text",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [
+        1140,
+        -1200
+      ],
+      "id": "d8465c33-4204-4f36-833d-8fbbf603865f",
+      "name": "Save to Outreach Queue",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "bqjlJCFDr9rLQ9MG",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// DEBUG: Check profile data before Google Sheets\nconsole.log('=== PROFILE DATA GOING TO GOOGLE SHEETS ===');\nconsole.log('Full $json:', JSON.stringify($json, null, 2));\n\n// Check each profile field specifically\nconst fields = [\n  'Profile Name', 'Job Title', 'Current Company', \n  'Location', 'LinkedIn URL', 'Experience', \n  'Education', 'Summary', 'Status'\n];\n\nconsole.log('=== FIELD BY FIELD CHECK ===');\nfields.forEach(field => {\n  console.log(`${field}: \"${$json[field]}\"`);\n});\n\n// Return unchanged\nreturn { json: $json };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        -540
+      ],
+      "id": "84e69ee2-cf40-4936-8f98-c7f8e561c1e4",
+      "name": "Messgae Debug"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Combine generated message with profile data for outreach queue\nconsole.log('=== COMBINING MESSAGE WITH PROFILE DATA ===');\n\n// Get the generated message from OpenAI\nconst messageData = $json;\nconsole.log('Message data from OpenAI:', JSON.stringify(messageData, null, 2));\n\n// Get profile data from the previous context\nconst profileContext = $('Prepare Message Context').first().json;\nconsole.log('Profile context:', JSON.stringify(profileContext, null, 2));\n\n// Extract the generated message\nlet generatedMessage = '';\nif (messageData.output) {\n  generatedMessage = messageData.output;\n} else if (messageData.text) {\n  generatedMessage = messageData.text;\n} else if (messageData.content) {\n  generatedMessage = messageData.content;\n} else if (typeof messageData === 'string') {\n  generatedMessage = messageData;\n} else {\n  generatedMessage = 'Message generation failed';\n}\n\nconsole.log('Extracted message:', generatedMessage);\n\n// Combine with profile data for outreach queue\nconst outreachData = {\n  \"Profile Name\": profileContext[\"Profile Name\"] || 'N/A',\n  \"Job Title\": profileContext[\"Job Title\"] || 'N/A',\n  \"Current Company\": profileContext[\"Current Company\"] || 'N/A',\n  \"LinkedIn URL\": profileContext[\"LinkedIn URL\"] || 'N/A',\n  \"Generated Message\": generatedMessage.trim(),\n  \"Status\": \"Ready for Review\",\n  \"Date Added\": new Date().toISOString().split('T')[0],\n  \"Ready to Send (checkbox)\": \"FALSE\"\n};\n\nconsole.log('Final outreach data:', outreachData);\n\nreturn { json: outreachData };\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        -1200
+      ],
+      "id": "b632dd6a-34a2-421f-bd4f-46c247cf488f",
+      "name": "Combine Message + Profile"
+    },
+    {
+      "parameters": {
+        "content": "## Send to Google Sheets",
+        "height": 260,
+        "width": 600,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        480,
+        -600
+      ],
+      "typeVersion": 1,
+      "id": "be25fa8f-b4c9-43ba-85a4-8b78a6291bd4",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## Find LinkedIn Profiles\n\n",
+        "height": 280,
+        "width": 1540,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -1160,
+        -920
+      ],
+      "typeVersion": 1,
+      "id": "c4f000ea-72df-4bfa-8b8b-5386a1ce3cf1",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## Create personalised message ready to connect on LinkedIn",
+        "height": 260,
+        "width": 840
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        480,
+        -1300
+      ],
+      "typeVersion": 1,
+      "id": "dc19ef16-d0dc-4b39-b750-0f5cd58e6a8b",
+      "name": "Sticky Note2",
+      "disabled": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Generate sales email context from LinkedIn data - FIXED DATA ACCESS\nconsole.log('=== GENERATING SALES EMAIL CONTEXT - FIXED ===');\n\n// Get data directly from current execution\nconst profileData = $json;\nconsole.log('Raw profile data received:', JSON.stringify(profileData, null, 2));\nconsole.log('Profile data keys:', Object.keys(profileData));\n\n// Log each field specifically to debug\nconsole.log('Current Company field:', profileData['Current Company']);\nconsole.log('Profile Name field:', profileData['Profile Name']);\nconsole.log('Job Title field:', profileData['Job Title']);\nconsole.log('LinkedIn URL field:', profileData['LinkedIn URL']);\n\n// Extract company info - try EXACT field names from your workflow\nconst company = profileData['Current Company'] || 'MISSING_COMPANY';\nconst profileName = profileData['Profile Name'] || 'MISSING_NAME';\nconst jobTitle = profileData['Job Title'] || 'MISSING_TITLE';\nconst linkedinUrl = profileData['LinkedIn URL'] || 'MISSING_URL';\nconst summary = profileData['Summary'] || 'Professional background';\nconst location = profileData['Location'] || 'Unknown Location';\nconst status = profileData['Status'] || 'Unknown Status';\n\n// Get sales rep name from original search data\nlet salesRepName = 'Sales Team';\ntry {\n  // Access the Process Companies node data to get sales rep name\n  const processCompaniesData = $('Process Companies').all();\n  if (processCompaniesData && processCompaniesData.length > 0) {\n    const searchData = processCompaniesData[0].json;\n    salesRepName = searchData.salesRepName || 'Sales Team';\n    console.log('Found sales rep name from Process Companies:', salesRepName);\n  }\n} catch (error) {\n  console.log('Could not get sales rep name:', error.message);\n}\n\nconsole.log('EXTRACTED VALUES:');\nconsole.log('Company:', company);\nconsole.log('Profile Name:', profileName);\nconsole.log('Job Title:', jobTitle);\nconsole.log('LinkedIn URL:', linkedinUrl);\nconsole.log('Sales Rep:', salesRepName);\nconsole.log('Status:', status);\n\n// Only proceed if we have actual profile data (not skipped/empty results)\nif (company === 'MISSING_COMPANY' || profileName === 'MISSING_NAME' || profileName === 'N/A') {\n  console.log('WARNING: Missing critical profile data - this might be a skipped result');\n  \n  // Return the data anyway but flag the issue\n  return {\n    json: {\n      ...profileData,\n      emailContext: {\n        targetCompany: 'DATA_MISSING_CHECK_LINKEDIN_PARSING',\n        contactName: profileName,\n        contactTitle: jobTitle,\n        contactLinkedIn: linkedinUrl,\n        salesRepName: salesRepName,\n        dataIssue: 'Profile data missing or incomplete'\n      }\n    }\n  };\n}\n\n// Create email context with the actual data\nconst emailContext = {\n  targetCompany: company,\n  contactName: profileName,\n  contactTitle: jobTitle,\n  contactLinkedIn: linkedinUrl,\n  contactSummary: summary,\n  contactLocation: location,\n  salesRepName: salesRepName,\n  profileSummary: `${profileName} (${jobTitle}) at ${company}`,\n  searchDate: new Date().toISOString().split('T')[0],\n  dataStatus: status\n};\n\nconsole.log('SUCCESS: Email context created for company:', emailContext.targetCompany);\n\nreturn {\n  json: {\n    ...profileData, // Keep all existing profile data\n    emailContext: emailContext\n  }\n};\n"
+      },
+      "id": "4ea97d08-cebf-43c5-bb0d-e45a020529d5",
+      "name": "Generate Sales Email Context",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1540,
+        -840
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "jsCode": "// Format the final sales email - FIXED COLUMN POPULATION\nconsole.log('=== FORMATTING SALES EMAIL - COLUMN FIX ===');\n\nconst data = $json;\nconsole.log('Received data keys:', Object.keys(data));\n\n// Get the generated email content\nconst generatedEmail = data.output || data.text || data.content || 'Email generation failed';\nconsole.log('Generated email length:', generatedEmail.length);\n\n// Try multiple methods to get the contact data\nlet company = 'Unknown Company';\nlet contactName = 'Unknown Contact';\nlet contactTitle = 'Professional';\nlet linkedinUrl = 'N/A';\nlet salesRepName = 'Sales Team';\n\n// Method 1: Get from emailContext if it exists\nif (data.emailContext) {\n  company = data.emailContext.targetCompany || company;\n  contactName = data.emailContext.contactName || contactName;\n  contactTitle = data.emailContext.contactTitle || contactTitle;\n  linkedinUrl = data.emailContext.contactLinkedIn || linkedinUrl;\n  salesRepName = data.emailContext.salesRepName || salesRepName;\n  console.log('Method 1 - Got from emailContext:', { company, contactName, salesRepName });\n}\n\n// Method 2: Try to get from Generate Sales Email Context node\nif (company === 'Unknown Company' || contactName === 'Unknown Contact') {\n  try {\n    const contextNode = $('Generate Sales Email Context').first();\n    if (contextNode && contextNode.json) {\n      const contextData = contextNode.json;\n      console.log('Context node data keys:', Object.keys(contextData));\n      \n      if (contextData.emailContext) {\n        company = contextData.emailContext.targetCompany || company;\n        contactName = contextData.emailContext.contactName || contactName;\n        contactTitle = contextData.emailContext.contactTitle || contactTitle;\n        linkedinUrl = contextData.emailContext.contactLinkedIn || linkedinUrl;\n        salesRepName = contextData.emailContext.salesRepName || salesRepName;\n        console.log('Method 2 - Got from context node:', { company, contactName, salesRepName });\n      }\n      \n      // Also try direct fields\n      if (contextData['Current Company']) {\n        company = contextData['Current Company'];\n        contactName = contextData['Profile Name'] || contactName;\n        contactTitle = contextData['Job Title'] || contactTitle;\n        linkedinUrl = contextData['LinkedIn URL'] || linkedinUrl;\n        console.log('Method 2b - Got from direct fields:', { company, contactName });\n      }\n    }\n  } catch (error) {\n    console.log('Error getting context node data:', error.message);\n  }\n}\n\n// Method 3: Extract from the generated email content as last resort\nif (company === 'Unknown Company' || contactName === 'Unknown Contact') {\n  console.log('Method 3 - Extracting from email content');\n  \n  // Extract company name\n  const companyMatches = [\n    generatedEmail.match(/Company:\\s*([^\\n\\r•]+)/),\n    generatedEmail.match(/thinking about how\\s+([^would]+)\\s+would use/i),\n    generatedEmail.match(/perfect for\\s+([^because]+)\\s+because/i)\n  ];\n  \n  for (let match of companyMatches) {\n    if (match && match[1] && match[1].trim() !== company) {\n      company = match[1].trim();\n      console.log('Extracted company from email:', company);\n      break;\n    }\n  }\n  \n  // Extract contact name\n  const nameMatches = [\n    generatedEmail.match(/•\\s*([^–\\n\\r]+)\\s*–/),\n    generatedEmail.match(/reach out to\\s+([^to\\n\\r]+)\\s+to/i),\n    generatedEmail.match(/contact:\\s*([^\\n\\r]+)/i)\n  ];\n  \n  for (let match of nameMatches) {\n    if (match && match[1] && match[1].trim() !== contactName) {\n      contactName = match[1].trim();\n      console.log('Extracted contact name from email:', contactName);\n      break;\n    }\n  }\n  \n  // Extract LinkedIn URL\n  const linkedinMatch = generatedEmail.match(/(https:\\/\\/[^\\s\\n\\r]+linkedin[^\\s\\n\\r]*)/i);\n  if (linkedinMatch) {\n    linkedinUrl = linkedinMatch[1];\n    console.log('Extracted LinkedIn URL from email:', linkedinUrl);\n  }\n  \n  // Extract sales rep name\n  const salesRepMatch = generatedEmail.match(/Hi\\s+([^,\\n\\r]+),/);\n  if (salesRepMatch && salesRepMatch[1] !== salesRepName) {\n    salesRepName = salesRepMatch[1].trim();\n    console.log('Extracted sales rep from email:', salesRepName);\n  }\n}\n\n// Clean up the values\ncompany = company.replace(/,$/, '').trim();\ncontactName = contactName.replace(/,$/, '').trim();\nsalesRepName = salesRepName.replace(/,$/, '').trim();\n\n// Clean up the generated email\nlet cleanEmail = String(generatedEmail)\n  .replace(/\\\\\"/g, '\"')\n  .replace(/\\\\n/g, '\\n')\n  .replace(/\\[Your name\\]/g, 'Your Name')\n  .trim();\n\n// Generate subject line\nconst subjectLine = `Risk Management Opportunity - ${company}`;\n\n// Create timestamp\nconst timestamp = new Date().toISOString();\nconst dateCreated = timestamp.split('T')[0];\n\nconsole.log('=== FINAL VALUES FOR EXCEL COLUMNS ===');\nconsole.log('Column A - Target Company:', company);\nconsole.log('Column B - Contact Name:', contactName);\nconsole.log('Column C - Contact Title:', contactTitle); \nconsole.log('Column D - LinkedIn URL:', linkedinUrl);\nconsole.log('Sales Rep Name:', salesRepName);\n\n// Validate we have good data\nif (company === 'Unknown Company') {\n  console.log('WARNING: Still have Unknown Company - check data flow');\n}\nif (contactName === 'Unknown Contact') {\n  console.log('WARNING: Still have Unknown Contact - check data flow');\n}\n\n// Create final sales email data with explicit field names\nconst salesEmailData = {\n  \"Target Company\": company,\n  \"Contact Name\": contactName,\n  \"Contact Title\": contactTitle,\n  \"LinkedIn URL\": linkedinUrl,\n  \"Sales Rep Name\": salesRepName,\n  \"Subject Line\": subjectLine,\n  \"Sales Email\": cleanEmail,\n  \"Email Status\": \"Ready to Forward\",\n  \"Date Created\": dateCreated,\n  \"Timestamp\": timestamp,\n  \"Email Length\": cleanEmail.length,\n  \"Ready to Send\": \"TRUE\"\n};\n\nconsole.log('Data being sent to Google Sheets:', JSON.stringify(salesEmailData, null, 2));\n\nreturn { json: salesEmailData };\n"
+      },
+      "id": "5968aee3-af6d-4ab7-b2bb-56e30977c399",
+      "name": "Format Sales Email",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        2120,
+        -840
+      ],
+      "typeVersion": 2
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1L0FlmJRBM-AjmhfSXUFwHPcfHnHyyHGl0UxPqQDvNAU",
+          "mode": "list",
+          "cachedResultName": "RMIS Contact Database"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 182852435,
+          "mode": "list",
+          "cachedResultName": "Sales Emails",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1L0FlmJRBM-AjmhfSXUFwHPcfHnHyyHGl0UxPqQDvNAU/edit#gid=182852435"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Target Company",
+              "displayName": "Target Company",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Contact Name",
+              "displayName": "Contact Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Contact Title",
+              "displayName": "Contact Title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "LinkedIn URL",
+              "displayName": "LinkedIn URL",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Subject Line",
+              "displayName": "Subject Line",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Sales Email",
+              "displayName": "Sales Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email Status",
+              "displayName": "Email Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Date Created",
+              "displayName": "Date Created",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Email Length",
+              "displayName": "Email Length",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Ready to Send",
+              "displayName": "Ready to Send",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "id": "6fc0e157-e29f-4234-a0a4-46c895bbd925",
+      "name": "Save Sales Email",
+      "type": "n8n-nodes-base.googleSheets",
+      "position": [
+        2340,
+        -840
+      ],
+      "typeVersion": 4.6,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "bqjlJCFDr9rLQ9MG",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Generate Sales email, send to Sheets and email \n",
+        "height": 340,
+        "width": 1060,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1500,
+        -960
+      ],
+      "typeVersion": 1,
+      "id": "48480ebb-c0ea-4b42-a81c-6a9004689091",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "You are writing a personalized sales email for an Archer sales representative.\n\nACTUAL CONTACT INFORMATION (use these exact details):\nSales Rep: [SALES_REP_NAME]\nTarget Company: [COMPANY_NAME]  \nContact Name: [CONTACT_NAME]\nContact Title: [CONTACT_TITLE]\nLinkedIn URL: [LINKEDIN_URL]\nBackground: [BACKGROUND_INFO]\n\nReplace the bracketed placeholders above with the actual values from the contact data provided.\n\nWrite a dynamic, personalized sales email that:\n1. Addresses the sales rep by their actual name\n2. Discusses the specific target company and their industry challenges\n3. Explains why Archer's RMIS AI tool would benefit this specific company\n4. Includes the actual contact details\n5. Mentions current industry trends relevant to their sector\n6. Uses a conversational, professional tone\n\nMake each email unique based on the company and contact provided. Research relevant industry challenges for the target company's sector and incorporate them naturally.\n\nReturn only the complete email content without any template variables or placeholders.",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a professional sales email writer specializing in risk management solutions."
+            },
+            {
+              "type": "HumanMessagePromptTemplate",
+              "message": "=Write a personalized sales email for this contact:  Sales Rep: {{ $json.emailContext.salesRepName }} Company: {{ $json.emailContext.targetCompany }} Contact: {{ $json.emailContext.contactName }} Title: {{ $json.emailContext.contactTitle }} LinkedIn: {{ $json.emailContext.contactLinkedIn }} Background: {{ $json.emailContext.contactSummary }}  Create a unique, dynamic email about Archer's RMIS AI tool. Include industry-specific challenges for {{ $json.emailContext.targetCompany }}'s sector. Be conversational and professional. Use the actual contact details above - do not include template variables in your response.  Write a complete sales email that the rep can forward immediately."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.7,
+      "position": [
+        1780,
+        -840
+      ],
+      "id": "371f92d8-5845-47cd-a123-daf83ba79aab",
+      "name": "Generate Sales Email1"
+    }
+  ],
+  "pinData": {
+    "Webhook": [
+      {
+        "json": {
+          "headers": {
+            "host": "n8n.srv908146.hstgr.cloud",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36 Genspark/1.1.297",
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "en-GB,en;q=0.5",
+            "cookie": "rl_page_init_referrer=RudderEncrypt%3AU2FsdGVkX1830HTFZIpoDyX4OUhzCmYL%2BgLPPzIwV8F143Gia4fyvwSNI8FG8IJP; rl_page_init_referring_domain=RudderEncrypt%3AU2FsdGVkX19fhmzBS0Zlk0Bwdna1LPeJcq9J8DeaacGZ36Erc%2FnLLoG22FrEzS%2Bt; rl_anonymous_id=RudderEncrypt%3AU2FsdGVkX180P0YTSAvzQ85k5MyG9EIwMIhPAmJki%2B%2FyCoHA8EEJ4jb1m0qtmVzt42P8emP%2BhQelLx4so8ojIg%3D%3D; rl_user_id=RudderEncrypt%3AU2FsdGVkX19E57NpVshVpHgljka8C36oZpAVS%2FfVfNK90QdPssVRgdclTHGl5GcOIQ8pOQ%2BH20%2B9EXzmzBO8n1r9Jesf8LmjCWgXbdjTNjiYCYcKRji1Sb5O7Dhq7Xaavqh8CoxG5ykGzPkESnnfGXHTw28ltu8%2FbGdylFqYquY%3D; rl_trait=RudderEncrypt%3AU2FsdGVkX18xJvF4OrPp3TwOigfAORhREFvdJYTSUAXo1euxSVDoftnl204OI8ULbDkJ4OgI9UERaQH6NGOMA3XG6RtZibXJyqmvSNBcF%2B%2F7f3LlWaWnct0wca92t2j2xj33qrKipkx3EIvTVEHJKg%3D%3D; rl_session=RudderEncrypt%3AU2FsdGVkX188sq1uqHVdfISIVRenVaRgt0adFId1oNDnRpgm0AvyIlGFKBTCXqMmR4vk2bk3WhUJxqU%2BtLW8%2BamQffYhj7fVNnsj87EvI%2B7%2B3sNhxRsbqI%2FKm6%2FeqTkcE4uS7%2FE9OkPDt1RAlJmlwg%3D%3D; ph_phc_4URIAm1uYfJO7j8kWSe0J8lc8IqnstRLS7Jx8NcakHo_posthog=%7B%22distinct_id%22%3A%22617e6558b78f037fc6aa58ea3cbdd505bef0bf3169738fc16fb3f4c54565f31e%23e8b4122e-66ae-4695-ae1c-9e05339278fc%22%2C%22%24sesid%22%3A%5B1752586778436%2C%2201980dfc-2eb2-7736-bb3a-8003a9b61053%22%2C1752581287601%5D%2C%22%24epp%22%3Atrue%2C%22%24initial_person_info%22%3A%7B%22r%22%3A%22https%3A%2F%2Fhpanel.hostinger.com%2F%22%2C%22u%22%3A%22https%3A%2F%2Fn8n.srv908146.hstgr.cloud%2Fsetup%22%7D%7D",
+            "priority": "u=0, i",
+            "sec-ch-ua": "\"Brave\";v=\"135\", \"Not-A.Brand\";v=\"8\", \"Chromium\";v=\"135\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "sec-fetch-dest": "document",
+            "sec-fetch-mode": "navigate",
+            "sec-fetch-site": "none",
+            "sec-fetch-user": "?1",
+            "sec-gpc": "1",
+            "upgrade-insecure-requests": "1",
+            "x-forwarded-for": "86.26.233.56",
+            "x-forwarded-host": "n8n.srv908146.hstgr.cloud",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "7643dea5ff49",
+            "x-real-ip": "86.26.233.56"
+          },
+          "params": {},
+          "query": {
+            "companies": "Test",
+            "keywords": "Test"
+          },
+          "body": {},
+          "webhookUrl": "https://n8n.srv908146.hstgr.cloud/webhook/RMISLinkedin",
+          "executionMode": "production"
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Process Companies": {
+      "main": [
+        [
+          {
+            "node": "Debug Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Debug Output": {
+      "main": [
+        [
+          {
+            "node": "Search LinkedIn Profiles - Fixed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search LinkedIn Profiles - Fixed": {
+      "main": [
+        [
+          {
+            "node": "Parse Results - Enhanced",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Results - Enhanced": {
+      "main": [
+        [
+          {
+            "node": "Prepare Message Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Debug Webhook Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Message Context": {
+      "main": [
+        [
+          {
+            "node": "Messgae Debug",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Generate Sales Email Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Debug Webhook Input": {
+      "main": [
+        [
+          {
+            "node": "Process Companies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Generate Sales Email1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Basic LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Basic LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Combine Message + Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to Outreach Queue": {
+      "main": [
+        []
+      ]
+    },
+    "Save Successful Results": {
+      "main": [
+        []
+      ]
+    },
+    "Messgae Debug": {
+      "main": [
+        [
+          {
+            "node": "Save Successful Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Combine Message + Profile": {
+      "main": [
+        [
+          {
+            "node": "Save to Outreach Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Sales Email Context": {
+      "main": [
+        [
+          {
+            "node": "Generate Sales Email1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Sales Email": {
+      "main": [
+        [
+          {
+            "node": "Save Sales Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Sales Email1": {
+      "main": [
+        [
+          {
+            "node": "Format Sales Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "83e69250-d0d5-4a6a-8c85-96ef5387b063",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "617e6558b78f037fc6aa58ea3cbdd505bef0bf3169738fc16fb3f4c54565f31e"
+  },
+  "id": "n7ChVfVTxLZE1gpL",
+  "tags": [
+    {
+      "createdAt": "2025-07-15T13:17:36.455Z",
+      "updatedAt": "2025-07-15T13:17:36.455Z",
+      "id": "MOZpQOYMYezID1Ui",
+      "name": "RMIS"
+    }
+  ]
+}
