@@ -5,7 +5,7 @@
 
 class LinkedInSearchApp {
     constructor() {
-        this.webhookUrl = 'https://n8n.srv908146.hstgr.cloud/webhook/RMISLinkedin';
+        this.webhookUrl = 'https://n8n.srv908146.hstgr.cloud/webhook/RMISDISCOLICONNECT';
         this.form = document.getElementById('linkedinSearchForm');
         this.submitBtn = document.getElementById('submitBtn');
         this.statusMessage = document.getElementById('statusMessage');
@@ -380,7 +380,7 @@ window.LinkedInSearchUtils = {
         console.log('Testing webhook with:', testData);
         
         try {
-            const response = await fetch('https://n8n.srv908146.hstgr.cloud/webhook/RMISLinkedin', {
+            const response = await fetch('https://n8n.srv908146.hstgr.cloud/webhook/RMISDISCOLICONNECT', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
